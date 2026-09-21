@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agendador
+      POSTGRES_PASSWORD: agendador
+      POSTGRES_DB: agendador
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agendador"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://agendador:agendador@postgres:5432/agendador?schema=public
+      PORT: 3333
+      JWT_SECRET_GESTOR: ${JWT_SECRET_GESTOR:-change-me-gestor-secret}
+      JWT_SECRET_CLIENTE: ${JWT_SECRET_CLIENTE:-change-me-cliente-secret}
+      JWT_EXPIRES_IN: 7d
+      LEMBRETE_ANTECEDENCIA_MINUTOS: 120
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ATENDENTE_MODEL: ${ATENDENTE_MODEL:-claude-sonnet-5}
+    ports:
+      - "3333:3333"
+
+volumes:
+  postgres_data:

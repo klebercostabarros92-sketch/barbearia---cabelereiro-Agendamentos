@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StatusAgendamento {
+  CONFIRMADO
+  CANCELADO
+  CONCLUIDO
+}
+
+enum CanalLembrete {
+  PUSH
+}
+
+enum CanalAtendimento {
+  WHATSAPP
+  WEBCHAT
+  OUTRO
+}
+
+enum RemetenteMensagem {
+  CLIENTE
+  ATENDENTE
+}
+
+model Estabelecimento {
+  id          String   @id @default(uuid())
+  nome        String
+  endereco    String?
+  horaAbertura String  @default("09:00")
+  horaFechamento String @default("19:00")
+  antecedenciaLembreteMin Int @default(120)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  gestores      Gestor[]
+  profissionais Profissional[]
+  servicos      Servico[]
+  conversas     ConversaAtendimento[]
+
+  @@map("estabelecimentos")
+}
+
+model Gestor {
+  id                String   @id @default(uuid())
+  nome              String
+  email             String   @unique
+  senhaHash         String
+  estabelecimentoId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  estabelecimento Estabelecimento @relation(fields: [estabelecimentoId], references: [id])
+
+  @@map("gestores")
+}
+
+model Profissional {
+  id                String   @id @default(uuid())
+  nome              String
+  foto              String?
+  estabelecimentoId String
+  ativo             Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  estabelecimento    Estabelecimento     @relation(fields: [estabelecimentoId], references: [id])
+  servicos           ProfissionalServico[]
+  horariosDisponiveis HorarioDisponivel[]
+  agendamentos       Agendamento[]
+
+  @@map("profissionais")
+}
+
+model Servico {
+  id                String   @id @default(uuid())
+  nome              String
+  duracaoMinutos    Int
+  preco             Decimal  @db.Decimal(10, 2)
+  estabelecimentoId String
+  ativo             Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  estabelecimento Estabelecimento       @relation(fields: [estabelecimentoId], references: [id])
+  profissionais   ProfissionalServico[]
+  agendamentos    Agendamento[]
+
+  @@map("servicos")
+}
+
+model ProfissionalServico {
+  profissionalId String
+  servicoId      String
+
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+  servico      Servico      @relation(fields: [servicoId], references: [id], onDelete: Cascade)
+
+  @@id([profissionalId, servicoId])
+  @@map("profissionais_servicos")
+}
+
+model HorarioDisponivel {
+  id             String   @id @default(uuid())
+  profissionalId String
+  diaSemana      Int      // 0 = domingo ... 6 = sábado
+  horaInicio     String   // "HH:mm"
+  horaFim        String   // "HH:mm"
+
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+
+  @@map("horarios_disponiveis")
+}
+
+model Cliente {
+  id           String   @id @default(uuid())
+  nome         String
+  telefone     String?
+  email        String   @unique
+  senhaHash    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  agendamentos Agendamento[]
+  conversas    ConversaAtendimento[]
+
+  @@map("clientes")
+}
+
+model Agendamento {
+  id             String            @id @default(uuid())
+  clienteId      String
+  profissionalId String
+  servicoId      String
+  dataHora       DateTime
+  status         StatusAgendamento @default(CONFIRMADO)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  cliente      Cliente      @relation(fields: [clienteId], references: [id])
+  profissional Profissional @relation(fields: [profissionalId], references: [id])
+  servico      Servico      @relation(fields: [servicoId], references: [id])
+  lembrete     Lembrete?
+
+  @@index([profissionalId, dataHora])
+  @@map("agendamentos")
+}
+
+model Lembrete {
+  id             String        @id @default(uuid())
+  agendamentoId  String        @unique
+  enviadoEm      DateTime?
+  canal          CanalLembrete @default(PUSH)
+
+  agendamento Agendamento @relation(fields: [agendamentoId], references: [id], onDelete: Cascade)
+
+  @@map("lembretes")
+}
+
+// Atendente virtual: uma conversa por (canal, identificador externo) — ex.: número de WhatsApp.
+// Fica desacoplado do canal (WhatsApp Cloud API, Baileys, webchat, etc.) para o canal ser plugado depois.
+model ConversaAtendimento {
+  id                 String           @id @default(uuid())
+  estabelecimentoId  String
+  canal              CanalAtendimento
+  identificadorExterno String         // ex.: telefone em formato E.164
+  clienteId          String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  estabelecimento Estabelecimento @relation(fields: [estabelecimentoId], references: [id])
+  cliente         Cliente?        @relation(fields: [clienteId], references: [id])
+  mensagens       MensagemAtendimento[]
+
+  @@unique([estabelecimentoId, canal, identificadorExterno])
+  @@map("conversas_atendimento")
+}
+
+model MensagemAtendimento {
+  id         String            @id @default(uuid())
+  conversaId String
+  remetente  RemetenteMensagem
+  texto      String
+  createdAt  DateTime          @default(now())
+
+  conversa ConversaAtendimento @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+
+  @@map("mensagens_atendimento")
+}
